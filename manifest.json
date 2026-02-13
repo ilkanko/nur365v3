@@ -1,0 +1,27 @@
+{
+  "name": "Nur365 - Günlük Manevi Rehberiniz",
+  "short_name": "Nur365",
+  "description": "Her gün bir nur, her an bir hatırlatma - Namaz vakitleri, Kıble pusulası, Zikirmatik ve daha fazlası",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f0f9ff",
+  "theme_color": "#0269d6",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["lifestyle", "education", "productivity"],
+  "lang": "tr",
+  "dir": "ltr"
+}
