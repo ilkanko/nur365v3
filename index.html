@@ -1071,9 +1071,16 @@
                 </div>
                 
                 <div class="settings-section" style="margin-top: 30px;">
-                    <div style="background: linear-gradient(135deg, rgba(2, 105, 214, 0.1) 0%, rgba(189, 132, 0, 0.1) 100%); padding: 15px; border-radius: 12px; text-align: center;">
-                        <p style="font-size: 13px; color: #64748b;">
-                            ⓘ En doğru sonuç için telefonunuzu yatay tutun ve etrafınızda metal cisim olmadığından emin olun.
+                    <h3 style="margin-bottom: 15px;">📍 Nasıl Kullanılır</h3>
+                    <div style="background: linear-gradient(135deg, rgba(2, 105, 214, 0.1) 0%, rgba(189, 132, 0, 0.1) 100%); padding: 15px; border-radius: 12px;">
+                        <p style="font-size: 13px; color: #64748b; line-height: 1.6; margin-bottom: 10px;">
+                            <strong>1.</strong> Telefonunuzu düz ve yatay tutun<br>
+                            <strong>2.</strong> Etrafta metal cisim olmadığından emin olun<br>
+                            <strong>3.</strong> Altın ok Kıble'yi gösterir<br>
+                            <strong>4.</strong> Ok parlıyorsa doğru yöndesiniz ✨
+                        </p>
+                        <p style="font-size: 12px; color: #94a3b8; margin-top: 10px;">
+                            ⓘ Pusulalar +/- 5° sapma gösterebilir. Hassas kullanım için telefonunuzun pusula kalibrasyonunu yapın (8 şekli çizin).
                         </p>
                     </div>
                 </div>
@@ -1795,58 +1802,130 @@
         // ============================================
         let compassHeading = 0;
         let qiblaAngle = 0;
+        let smoothedHeading = 0;
+        let calibrationOffset = 0;
 
         function initQiblaCompass() {
             calculateQiblaDirection();
-            
-            if ('DeviceOrientationEvent' in window) {
-                window.addEventListener('deviceorientation', handleOrientation);
-            } else {
+            requestCompassPermission();
+        }
+
+        async function requestCompassPermission() {
+            // Check if DeviceOrientationEvent exists
+            if (!('DeviceOrientationEvent' in window)) {
                 document.getElementById('compass-degree').textContent = 'Desteklenmiyor';
+                return;
+            }
+
+            // iOS 13+ requires permission
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission === 'granted') {
+                        startCompass();
+                    } else {
+                        alert('Pusula izni gerekli. Ayarlardan izin verin.');
+                    }
+                } catch (error) {
+                    console.error('Compass permission error:', error);
+                }
+            } else {
+                // Android or older iOS - no permission needed
+                startCompass();
             }
         }
 
+        function startCompass() {
+            window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+            window.addEventListener('deviceorientation', handleOrientation, true);
+        }
+
         function calculateQiblaDirection() {
-            // Kaaba coordinates
-            const kaabaLat = 21.4225;
-            const kaabaLng = 39.8262;
+            // Kaaba coordinates (very precise)
+            const kaabaLat = 21.422487;
+            const kaabaLng = 39.826206;
             
             // User location (default Istanbul if not available)
             const userLat = userLocation.lat || 41.0082;
             const userLng = userLocation.lng || 28.9784;
             
-            // Calculate qibla angle using formula
+            // Haversine formula for more accurate bearing calculation
             const φ1 = userLat * Math.PI / 180;
             const φ2 = kaabaLat * Math.PI / 180;
             const Δλ = (kaabaLng - userLng) * Math.PI / 180;
             
-            const y = Math.sin(Δλ);
-            const x = Math.cos(φ1) * Math.tan(φ2) - Math.sin(φ1) * Math.cos(Δλ);
+            const y = Math.sin(Δλ) * Math.cos(φ2);
+            const x = Math.cos(φ1) * Math.sin(φ2) - 
+                      Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
             
-            qiblaAngle = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+            let bearing = Math.atan2(y, x) * 180 / Math.PI;
+            qiblaAngle = (bearing + 360) % 360;
             
             document.getElementById('qibla-degree').textContent = Math.round(qiblaAngle);
         }
 
         function handleOrientation(event) {
-            // Get the compass heading
-            let heading = event.webkitCompassHeading || event.alpha;
+            let heading;
             
-            if (heading !== null) {
-                // Normalize heading (0-360)
-                compassHeading = 360 - heading;
-                
-                // Update compass display
-                document.getElementById('compass-degree').textContent = Math.round(compassHeading);
-                
-                // Rotate compass ring
-                const ring = document.getElementById('compass-ring');
-                ring.style.transform = `rotate(${-compassHeading}deg)`;
-                
-                // Rotate qibla arrow to point to Kaaba
-                const arrow = document.getElementById('qibla-arrow');
-                const qiblaRotation = qiblaAngle - compassHeading;
-                arrow.style.transform = `translate(-50%, -50%) rotate(${qiblaRotation}deg)`;
+            // Try different methods based on device
+            if (event.webkitCompassHeading !== undefined) {
+                // iOS
+                heading = event.webkitCompassHeading;
+            } else if (event.alpha !== null) {
+                // Android - need to calculate from alpha
+                if (event.absolute) {
+                    heading = 360 - event.alpha;
+                } else {
+                    // Relative orientation - use alpha with compensation
+                    heading = event.alpha;
+                    
+                    // Adjust for device orientation
+                    if (window.orientation !== undefined) {
+                        heading = heading - window.orientation;
+                    }
+                }
+            } else {
+                return; // No valid heading
+            }
+            
+            // Normalize to 0-360
+            heading = (heading + 360) % 360;
+            
+            // Apply smoothing (exponential moving average)
+            const alpha = 0.3; // Smoothing factor (0-1, lower = smoother)
+            smoothedHeading = alpha * heading + (1 - alpha) * smoothedHeading;
+            
+            // Apply calibration offset
+            compassHeading = (smoothedHeading + calibrationOffset + 360) % 360;
+            
+            // Update UI
+            updateCompassUI();
+        }
+
+        function updateCompassUI() {
+            // Update compass degree display
+            document.getElementById('compass-degree').textContent = Math.round(compassHeading);
+            
+            // Rotate compass ring (shows North)
+            const ring = document.getElementById('compass-ring');
+            ring.style.transform = `rotate(${-compassHeading}deg)`;
+            
+            // Calculate qibla arrow rotation
+            const qiblaRotation = qiblaAngle - compassHeading;
+            
+            // Rotate arrow to point to Kaaba
+            const arrow = document.getElementById('qibla-arrow');
+            arrow.style.transform = `translate(-50%, -50%) rotate(${qiblaRotation}deg)`;
+            
+            // Visual feedback when pointing towards Qibla
+            const arrowElement = document.getElementById('qibla-arrow');
+            const angleDiff = Math.abs(qiblaRotation % 360);
+            
+            // If within 10 degrees of Qibla, highlight arrow
+            if ((angleDiff < 10 || angleDiff > 350)) {
+                arrowElement.style.filter = 'drop-shadow(0 4px 15px rgba(189, 132, 0, 0.8))';
+            } else {
+                arrowElement.style.filter = 'drop-shadow(0 4px 8px rgba(189, 132, 0, 0.4))';
             }
         }
 
